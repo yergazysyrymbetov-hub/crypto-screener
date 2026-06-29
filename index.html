@@ -153,7 +153,6 @@
             document.getElementById('error').style.display = 'none';
             
             try {
-                // Используем публичный CORS прокси
                 const proxy = 'https://api.allorigins.win/raw?url=';
                 const baseUrl = 'https://fapi.binance.com/fapi/v1';
                 
@@ -165,28 +164,44 @@
                 if (!tickersRes.ok || !fundingRes.ok) throw new Error('Ошибка загрузки данных');
                 
                 const tickers = await tickersRes.json();
-                const funding = await fundingRes.json();
+                let funding = await fundingRes.json();
+                
+                // Проверяем формат данных
+                if (!Array.isArray(funding)) {
+                    // Если funding - объект с result.list
+                    if (funding.result && Array.isArray(funding.result.list)) {
+                        funding = funding.result.list;
+                    } else if (funding.data && Array.isArray(funding.data)) {
+                        funding = funding.data;
+                    } else {
+                        throw new Error('Неверный формат данных funding');
+                    }
+                }
                 
                 // Создаем map funding rate
                 const fundingMap = {};
-                funding.forEach(f => {
-                    fundingMap[f.symbol] = parseFloat(f.lastFundingRate) * 100;
-                });
+                if (Array.isArray(funding)) {
+                    funding.forEach(f => {
+                        if (f.symbol && f.lastFundingRate) {
+                            fundingMap[f.symbol] = parseFloat(f.lastFundingRate) * 100;
+                        }
+                    });
+                }
                 
                 // Обрабатываем данные
                 let data = tickers
-                    .filter(t => t.symbol.endsWith('USDT'))
+                    .filter(t => t.symbol && t.symbol.endsWith('USDT'))
                     .map(t => {
-                        const volume = parseFloat(t.quoteVolume);
-                        const change = parseFloat(t.priceChangePercent);
-                        const funding = fundingMap[t.symbol] || 0;
+                        const volume = parseFloat(t.quoteVolume) || 0;
+                        const change = parseFloat(t.priceChangePercent) || 0;
+                        const fundingRate = fundingMap[t.symbol] || 0;
                         
                         return {
                             symbol: t.symbol,
                             price: parseFloat(t.lastPrice),
                             change: change,
                             volume: volume,
-                            funding: funding,
+                            funding: fundingRate,
                             impulse: Math.abs(change) * (volume / 1000000)
                         };
                     });
@@ -199,8 +214,8 @@
                 data.sort((a, b) => b.impulse - a.impulse);
                 
                 // Статистика
-                const avgFunding = data.reduce((sum, d) => sum + d.funding, 0) / data.length;
-                const maxVolume = Math.max(...data.map(d => d.volume));
+                const avgFunding = data.length > 0 ? data.reduce((sum, d) => sum + d.funding, 0) / data.length : 0;
+                const maxVolume = data.length > 0 ? Math.max(...data.map(d => d.volume)) : 0;
                 
                 document.getElementById('stats').innerHTML = `
                     <div class="stat-card">
@@ -256,6 +271,7 @@
             } catch (err) {
                 document.getElementById('error').textContent = 'Ошибка: ' + err.message;
                 document.getElementById('error').style.display = 'block';
+                console.error(err);
             } finally {
                 btn.disabled = false;
                 btn.textContent = '🔄 Обновить';
@@ -263,7 +279,6 @@
         }
         
         function sortTable(field) {
-            // Простая сортировка - перезагружаем данные и сортируем
             loadData();
         }
         
