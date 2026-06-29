@@ -3,123 +3,70 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-# Настройки страницы
-st.set_page_config(page_title="Bybit Futures Screener", layout="wide", page_icon="🚀")
+st.set_page_config(page_title="Binance Futures Screener", layout="wide", page_icon="🚀")
 
-# Функция загрузки данных
 @st.cache_data(ttl=60)
 def load_market_data():
     try:
-        # Bybit API v5
-        url = "https://api.bybit.com/v5/market/tickers"
-        params = {
-            "category": "linear",
-            "limit": "1000"
-        }
+        # Binance Futures API
+        tickers_url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
+        funding_url = "https://fapi.binance.com/fapi/v1/premiumIndex"
         
-        # Заголовки обязательны для Bybit
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0"
-        }
+        headers = {"User-Agent": "Mozilla/5.0"}
         
-        response = requests.get(url, params=params, headers=headers, timeout=15)
+        r1 = requests.get(tickers_url, headers=headers, timeout=10)
+        r2 = requests.get(funding_url, headers=headers, timeout=10)
         
-        # Проверяем статус код
-        if response.status_code != 200:
-            st.error(f"HTTP ошибка: {response.status_code}")
-            st.error(f"Ответ: {response.text[:200]}")
-            return pd.DataFrame()
+        tickers = r1.json()
+        funding = r2.json()
         
-        # Пробуем распарсить JSON
-        try:
-            data = response.json()
-        except Exception as json_err:
-            st.error(f"Ошибка JSON: {json_err}")
-            st.error(f"Получен текст: {response.text[:300]}")
-            return pd.DataFrame()
+        df_t = pd.DataFrame(tickers)
+        df_f = pd.DataFrame(funding)
         
-        # Проверяем код ответа Bybit
-        ret_code = data.get('retCode')
-        if ret_code != 0:
-            st.error(f"Bybit API ошибка: {data.get('retMsg', 'Неизвестная ошибка')}")
-            return pd.DataFrame()
-        
-        tickers = data.get('result', {}).get('list', [])
-        
-        if not tickers:
-            st.warning("Нет данных от API")
-            return pd.DataFrame()
-        
-        # Создаем DataFrame
-        df = pd.DataFrame(tickers)
-        
-        # Фильтруем USDT пары и активные
+        # Merge
+        df = pd.merge(df_t, df_f[['symbol', 'lastFundingRate']], on='symbol', how='inner')
         df = df[df['symbol'].str.endswith('USDT')]
-        df = df[df['status'] == 'Trading']
         
-        # Конвертируем числовые поля
-        numeric_cols = ['lastPrice', 'price24hPcnt', 'volume24h', 'turnover24h', 'fundingRate', 'openInterest']
-        for col in numeric_cols:
+        # Convert
+        for col in ['quoteVolume', 'priceChangePercent', 'lastFundingRate']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        # Метрики
-        df['Funding %'] = df['fundingRate'] * 100
-        df['Change 24h %'] = df['price24hPcnt'] * 100
-        df['Volume USDT'] = df['turnover24h']
-        df['Open Interest'] = df['openInterest']
+        df['Funding %'] = df['lastFundingRate'] * 100
+        df['Change 24h %'] = df['priceChangePercent']
+        df['Volume USDT'] = df['quoteVolume']
         df['Impulse Score'] = abs(df['Change 24h %']) * (df['Volume USDT'] / 1_000_000)
         
-        # Убираем лишние колонки
-        df = df.drop(columns=['status', 'price24hPcnt', 'fundingRate', 'turnover24h', 'openInterest'], errors='ignore')
+        return df[['symbol', 'lastPrice', 'Change 24h %', 'Volume USDT', 'Funding %', 'Impulse Score']]
         
-        return df
-        
-    except requests.exceptions.Timeout:
-        st.error("Превышено время ожидания ответа от Bybit")
-        return pd.DataFrame()
-    except requests.exceptions.RequestException as e:
-        st.error(f"Ошибка подключения: {e}")
-        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Неизвестная ошибка: {type(e).__name__}: {e}")
+        st.error(f"Ошибка: {e}")
         return pd.DataFrame()
 
-# Интерфейс
-st.title("🚀 Bybit Perpetual Futures Screener")
-st.caption("Данные обновляются каждые 60 секунд | Bybit USDT Perpetual Contracts")
+st.title("🚀 Binance Futures Screener")
+st.caption("Binance USDT-M Perpetual Contracts")
 
-if st.button("🔄 Обновить данные сейчас"):
+if st.button("🔄 Обновить"):
     st.cache_data.clear()
     st.rerun()
 
 df = load_market_data()
 
 if not df.empty:
-    # Фильтры
-    st.sidebar.header("⚙️ Фильтры")
-    min_vol = st.sidebar.number_input("Мин. объем (USDT)", value=10_000_000, step=5_000_000)
-    min_oi = st.sidebar.number_input("Мин. OI (USDT)", value=5_000_000, step=2_000_000)
+    st.sidebar.header("Фильтры")
+    min_vol = st.sidebar.number_input("Мин. объем", value=20_000_000, step=5_000_000)
     
-    if st.sidebar.checkbox("Применить фильтры", value=True):
-        df = df[(df['Volume USDT'] >= min_vol) & (df['Open Interest'] >= min_oi)]
+    if st.sidebar.checkbox("Применить", value=True):
+        df = df[df['Volume USDT'] >= min_vol]
     
-    # Метрики
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Всего пар", len(df))
+    col1, col2 = st.columns(2)
+    col1.metric("Пар", len(df))
     col2.metric("Средний Funding", f"{df['Funding %'].mean():.4f}%")
-    col3.metric("Топ Volume", f"${df['Volume USDT'].max()/1_000_000:.1f}M")
     
-    st.markdown("---")
-    
-    # Таблица
-    display_df = df[['symbol', 'lastPrice', 'Change 24h %', 'Volume USDT', 'Open Interest', 'Funding %', 'Impulse Score']].copy()
-    display_df = display_df.sort_values('Impulse Score', ascending=False)
+    df = df.sort_values('Impulse Score', ascending=False)
     
     st.dataframe(
-        display_df.style.format({
+        df.style.format({
             'Volume USDT': '${:,.0f}',
-            'Open Interest': '${:,.0f}',
             'Change 24h %': '{:.2f}%',
             'Funding %': '{:.4f}%',
             'lastPrice': '${:.4f}'
@@ -128,8 +75,8 @@ if not df.empty:
         height=600
     )
     
-    st.info("💡 **Funding > 0.01%** = перегретые лонги | **Funding < -0.01%** = перегретые шорты")
+    st.info("💡 **Funding > 0.01%** = long squeeze возможен | **Funding < -0.01%** = short squeeze")
 else:
-    st.warning("⚠️ Данные не загружены. Попробуйте обновить через минуту.")
+    st.warning("Нет данных")
 
-st.caption(f"Обновлено: {datetime.now().strftime('%H:%M:%S')} | Bybit API v5")
+st.caption(f"Обновлено: {datetime.now().strftime('%H:%M:%S')}")
