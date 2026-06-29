@@ -2,272 +2,34 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Futures Screener</title>
+    <title>Crypto Screener</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0a0e27;
-            color: #fff;
-            padding: 20px;
-        }
-        .container { max-width: 1400px; margin: 0 auto; }
-        h1 { 
-            font-size: 32px; 
-            margin-bottom: 10px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .subtitle { color: #8892b0; margin-bottom: 20px; }
-        .controls { 
-            display: flex; 
-            gap: 15px; 
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        button {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-        }
-        button:hover { background: #5568d3; }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-        .filter-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: #112240;
-            padding: 10px 15px;
-            border-radius: 8px;
-        }
-        .filter-group label { color: #8892b0; font-size: 14px; }
-        .filter-group input {
-            background: #0a0e27;
-            border: 1px solid #233554;
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 6px;
-            width: 150px;
-        }
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 25px;
-        }
-        .stat-card {
-            background: #112240;
-            padding: 20px;
-            border-radius: 12px;
-            border: 1px solid #233554;
-        }
-        .stat-label { color: #8892b0; font-size: 14px; margin-bottom: 8px; }
-        .stat-value { font-size: 24px; font-weight: 700; color: #667eea; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            background: #112240;
-            border-radius: 12px;
-            overflow: hidden;
-        }
-        th, td {
-            padding: 15px;
-            text-align: left;
-            border-bottom: 1px solid #233554;
-        }
-        th {
-            background: #0a0e27;
-            color: #8892b0;
-            font-weight: 600;
-            font-size: 13px;
-        }
-        tr:hover { background: #1a2f5c; }
-        .symbol { font-weight: 600; color: #667eea; }
-        .positive { color: #00d084; }
-        .negative { color: #ff5252; }
-        .loading { text-align: center; padding: 40px; color: #8892b0; }
-        .error {
-            background: #ff525220;
-            border: 1px solid #ff5252;
-            color: #ff5252;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        .last-update { color: #8892b0; font-size: 13px; margin-top: 20px; }
+        body { margin: 0; background: #0a0e27; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        h1 { color: #667eea; margin-bottom: 20px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🚀 Crypto Futures Screener</h1>
-        <p class="subtitle">Binance USDT Perpetual Contracts</p>
-        
-        <div id="error" class="error" style="display: none;"></div>
-        
-        <div class="controls">
-            <button onclick="loadData()" id="refreshBtn">🔄 Обновить</button>
-            <div class="filter-group">
-                <label>Мин. объем ($):</label>
-                <input type="number" id="minVolume" value="20000000" step="5000000">
-            </div>
+        <!-- TradingView Widget -->
+        <div class="tradingview-widget-container">
+            <div id="tradingview_screener"></div>
+            <script type="text/javascript" src="https://s3.tradingview.com/external-screener-api.js"></script>
+            <script type="text/javascript">
+            new TradingView.widget({
+                "width": "100%",
+                "height": 800,
+                "defaultColumn": "overview",
+                "defaultScreen": "general",
+                "market": "crypto",
+                "showToolbar": true,
+                "colorTheme": "dark",
+                "locale": "ru",
+                "container_id": "tradingview_screener"
+            });
+            </script>
         </div>
-        
-        <div class="stats" id="stats"></div>
-        <div id="table" class="loading">Нажмите "Обновить" для загрузки данных</div>
-        <div class="last-update" id="lastUpdate"></div>
     </div>
-
-    <script>
-        // Список CORS прокси
-        const CORS_PROXIES = [
-            'https://corsproxy.io/?',
-            'https://api.codetabs.com/v1/proxy?quest=',
-            'https://cors.bridged.cc/',
-            'https://api.allorigins.win/raw?url='
-        ];
-        
-        async function fetchWithProxy(url, proxyIndex = 0) {
-            if (proxyIndex >= CORS_PROXIES.length) {
-                throw new Error('Все прокси не работают');
-            }
-            
-            const proxy = CORS_PROXIES[proxyIndex];
-            const fullUrl = proxy + encodeURIComponent(url);
-            
-            try {
-                const response = await fetch(fullUrl, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json'
-                    }
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                
-                return await response.json();
-            } catch (err) {
-                console.log(`Proxy ${proxyIndex} failed:`, err.message);
-                return fetchWithProxy(url, proxyIndex + 1);
-            }
-        }
-        
-        async function loadData() {
-            const btn = document.getElementById('refreshBtn');
-            btn.disabled = true;
-            btn.textContent = '⏳ Загрузка...';
-            document.getElementById('error').style.display = 'none';
-            
-            try {
-                document.getElementById('table').innerHTML = '<div class="loading">Загрузка данных...</div>';
-                
-                const [tickers, funding] = await Promise.all([
-                    fetchWithProxy('https://fapi.binance.com/fapi/v1/ticker/24hr'),
-                    fetchWithProxy('https://fapi.binance.com/fapi/v1/premiumIndex')
-                ]);
-                
-                if (!Array.isArray(tickers) || !Array.isArray(funding)) {
-                    throw new Error('Неверный формат данных');
-                }
-                
-                // Map funding
-                const fundingMap = {};
-                funding.forEach(f => {
-                    if (f.symbol && f.lastFundingRate) {
-                        fundingMap[f.symbol] = parseFloat(f.lastFundingRate) * 100;
-                    }
-                });
-                
-                // Process data
-                let data = tickers
-                    .filter(t => t.symbol && t.symbol.endsWith('USDT'))
-                    .map(t => {
-                        const volume = parseFloat(t.quoteVolume) || 0;
-                        const change = parseFloat(t.priceChangePercent) || 0;
-                        return {
-                            symbol: t.symbol,
-                            price: parseFloat(t.lastPrice),
-                            change: change,
-                            volume: volume,
-                            funding: fundingMap[t.symbol] || 0,
-                            impulse: Math.abs(change) * (volume / 1000000)
-                        };
-                    });
-                
-                // Filter
-                const minVol = parseFloat(document.getElementById('minVolume').value) || 0;
-                data = data.filter(d => d.volume >= minVol);
-                
-                // Sort
-                data.sort((a, b) => b.impulse - a.impulse);
-                
-                // Stats
-                const avgFunding = data.length > 0 ? data.reduce((sum, d) => sum + d.funding, 0) / data.length : 0;
-                const maxVolume = data.length > 0 ? Math.max(...data.map(d => d.volume)) : 0;
-                
-                document.getElementById('stats').innerHTML = `
-                    <div class="stat-card">
-                        <div class="stat-label">Всего пар</div>
-                        <div class="stat-value">${data.length}</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Средний Funding</div>
-                        <div class="stat-value">${avgFunding.toFixed(4)}%</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Топ объем</div>
-                        <div class="stat-value">$${(maxVolume/1000000).toFixed(1)}M</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Топ импульс</div>
-                        <div class="stat-value">${data[0]?.impulse.toFixed(2) || 0}</div>
-                    </div>
-                `;
-                
-                // Table
-                document.getElementById('table').innerHTML = `
-                    <table>
-                        <thead>
-                            <tr><th>Пара</th><th>Цена</th><th>24ч</th><th>Объем</th><th>Funding</th><th>Импульс</th></tr>
-                        </thead>
-                        <tbody>
-                            ${data.slice(0, 100).map(d => `
-                                <tr>
-                                    <td class="symbol">${d.symbol}</td>
-                                    <td>$${d.price.toFixed(d.price < 1 ? 4 : 2)}</td>
-                                    <td class="${d.change >= 0 ? 'positive' : 'negative'}">${d.change.toFixed(2)}%</td>
-                                    <td>$${(d.volume/1000000).toFixed(2)}M</td>
-                                    <td class="${d.funding >= 0 ? 'negative' : 'positive'}">${d.funding.toFixed(4)}%</td>
-                                    <td>${d.impulse.toFixed(2)}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                `;
-                
-                document.getElementById('lastUpdate').textContent = 
-                    `Обновлено: ${new Date().toLocaleTimeString()}`;
-                
-            } catch (err) {
-                document.getElementById('error').textContent = 'Ошибка: ' + err.message;
-                document.getElementById('error').style.display = 'block';
-                document.getElementById('table').innerHTML = '';
-            } finally {
-                btn.disabled = false;
-                btn.textContent = '🔄 Обновить';
-            }
-        }
-        
-        loadData();
-    </script>
 </body>
 </html>
