@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Futures Screener</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0e27;
+            color: #fff;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { 
+            font-size: 32px; 
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle { color: #8892b0; margin-bottom: 20px; }
+        .controls { 
+            display: flex; 
+            gap: 15px; 
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        button:hover { background: #5568d3; transform: translateY(-2px); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #112240;
+            padding: 10px 15px;
+            border-radius: 8px;
+        }
+        .filter-group label { color: #8892b0; font-size: 14px; }
+        .filter-group input {
+            background: #0a0e27;
+            border: 1px solid #233554;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            width: 150px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .stat-card {
+            background: #112240;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #233554;
+        }
+        .stat-label { color: #8892b0; font-size: 14px; margin-bottom: 8px; }
+        .stat-value { font-size: 24px; font-weight: 700; color: #667eea; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #112240;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #233554;
+        }
+        th {
+            background: #0a0e27;
+            color: #8892b0;
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            cursor: pointer;
+            user-select: none;
+        }
+        th:hover { color: #667eea; }
+        tr:hover { background: #1a2f5c; }
+        .symbol { font-weight: 600; color: #667eea; }
+        .positive { color: #00d084; }
+        .negative { color: #ff5252; }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #8892b0;
+        }
+        .error {
+            background: #ff525220;
+            border: 1px solid #ff5252;
+            color: #ff5252;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .last-update {
+            color: #8892b0;
+            font-size: 13px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Crypto Futures Screener</h1>
+        <p class="subtitle">Binance USDT Perpetual Contracts</p>
+        
+        <div id="error" class="error" style="display: none;"></div>
+        
+        <div class="controls">
+            <button onclick="loadData()" id="refreshBtn">🔄 Обновить</button>
+            <div class="filter-group">
+                <label>Мин. объем ($):</label>
+                <input type="number" id="minVolume" value="20000000" step="5000000">
+            </div>
+            <div class="filter-group">
+                <label>
+                    <input type="checkbox" id="autoRefresh"> Авто-обновление (60с)
+                </label>
+            </div>
+        </div>
+        
+        <div class="stats" id="stats"></div>
+        <div id="table" class="loading">Нажмите "Обновить" для загрузки данных</div>
+        <div class="last-update" id="lastUpdate"></div>
+    </div>
+
+    <script>
+        let autoRefreshInterval;
+        
+        async function loadData() {
+            const btn = document.getElementById('refreshBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Загрузка...';
+            document.getElementById('error').style.display = 'none';
+            
+            try {
+                // Используем публичный CORS прокси
+                const proxy = 'https://api.allorigins.win/raw?url=';
+                const baseUrl = 'https://fapi.binance.com/fapi/v1';
+                
+                const [tickersRes, fundingRes] = await Promise.all([
+                    fetch(proxy + encodeURIComponent(baseUrl + '/ticker/24hr')),
+                    fetch(proxy + encodeURIComponent(baseUrl + '/premiumIndex'))
+                ]);
+                
+                if (!tickersRes.ok || !fundingRes.ok) throw new Error('Ошибка загрузки данных');
+                
+                const tickers = await tickersRes.json();
+                const funding = await fundingRes.json();
+                
+                // Создаем map funding rate
+                const fundingMap = {};
+                funding.forEach(f => {
+                    fundingMap[f.symbol] = parseFloat(f.lastFundingRate) * 100;
+                });
+                
+                // Обрабатываем данные
+                let data = tickers
+                    .filter(t => t.symbol.endsWith('USDT'))
+                    .map(t => {
+                        const volume = parseFloat(t.quoteVolume);
+                        const change = parseFloat(t.priceChangePercent);
+                        const funding = fundingMap[t.symbol] || 0;
+                        
+                        return {
+                            symbol: t.symbol,
+                            price: parseFloat(t.lastPrice),
+                            change: change,
+                            volume: volume,
+                            funding: funding,
+                            impulse: Math.abs(change) * (volume / 1000000)
+                        };
+                    });
+                
+                // Фильтр
+                const minVol = parseFloat(document.getElementById('minVolume').value) || 0;
+                data = data.filter(d => d.volume >= minVol);
+                
+                // Сортировка
+                data.sort((a, b) => b.impulse - a.impulse);
+                
+                // Статистика
+                const avgFunding = data.reduce((sum, d) => sum + d.funding, 0) / data.length;
+                const maxVolume = Math.max(...data.map(d => d.volume));
+                
+                document.getElementById('stats').innerHTML = `
+                    <div class="stat-card">
+                        <div class="stat-label">Всего пар</div>
+                        <div class="stat-value">${data.length}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Средний Funding</div>
+                        <div class="stat-value">${avgFunding.toFixed(4)}%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Топ объем</div>
+                        <div class="stat-value">$${(maxVolume/1000000).toFixed(1)}M</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Топ импульс</div>
+                        <div class="stat-value">${data[0]?.impulse.toFixed(2) || 0}</div>
+                    </div>
+                `;
+                
+                // Таблица
+                const html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th onclick="sortTable('symbol')">Пара ↕</th>
+                                <th onclick="sortTable('price')">Цена ↕</th>
+                                <th onclick="sortTable('change')">24ч ↕</th>
+                                <th onclick="sortTable('volume')">Объем ↕</th>
+                                <th onclick="sortTable('funding')">Funding ↕</th>
+                                <th onclick="sortTable('impulse')">Импульс ↕</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.slice(0, 100).map(d => `
+                                <tr>
+                                    <td class="symbol">${d.symbol}</td>
+                                    <td>$${d.price.toFixed(d.price < 1 ? 4 : 2)}</td>
+                                    <td class="${d.change >= 0 ? 'positive' : 'negative'}">${d.change.toFixed(2)}%</td>
+                                    <td>$${(d.volume/1000000).toFixed(2)}M</td>
+                                    <td class="${d.funding >= 0 ? 'negative' : 'positive'}">${d.funding.toFixed(4)}%</td>
+                                    <td>${d.impulse.toFixed(2)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                
+                document.getElementById('table').innerHTML = html;
+                document.getElementById('lastUpdate').textContent = 
+                    `Обновлено: ${new Date().toLocaleTimeString()}`;
+                
+            } catch (err) {
+                document.getElementById('error').textContent = 'Ошибка: ' + err.message;
+                document.getElementById('error').style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔄 Обновить';
+            }
+        }
+        
+        function sortTable(field) {
+            // Простая сортировка - перезагружаем данные и сортируем
+            loadData();
+        }
+        
+        // Авто-обновление
+        document.getElementById('autoRefresh').addEventListener('change', function() {
+            if (this.checked) {
+                autoRefreshInterval = setInterval(loadData, 60000);
+            } else {
+                clearInterval(autoRefreshInterval);
+            }
+        });
+        
+        // Первая загрузка
+        loadData();
+    </script>
+</body>
+</html>
