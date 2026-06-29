@@ -37,9 +37,8 @@
             cursor: pointer;
             font-size: 14px;
             font-weight: 600;
-            transition: all 0.3s;
         }
-        button:hover { background: #5568d3; transform: translateY(-2px); }
+        button:hover { background: #5568d3; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         .filter-group {
             display: flex;
@@ -89,7 +88,6 @@
             color: #8892b0;
             font-weight: 600;
             font-size: 13px;
-            text-transform: uppercase;
         }
         tr:hover { background: #1a2f5c; }
         .symbol { font-weight: 600; color: #667eea; }
@@ -128,6 +126,41 @@
     </div>
 
     <script>
+        // Список CORS прокси
+        const CORS_PROXIES = [
+            'https://corsproxy.io/?',
+            'https://api.codetabs.com/v1/proxy?quest=',
+            'https://cors.bridged.cc/',
+            'https://api.allorigins.win/raw?url='
+        ];
+        
+        async function fetchWithProxy(url, proxyIndex = 0) {
+            if (proxyIndex >= CORS_PROXIES.length) {
+                throw new Error('Все прокси не работают');
+            }
+            
+            const proxy = CORS_PROXIES[proxyIndex];
+            const fullUrl = proxy + encodeURIComponent(url);
+            
+            try {
+                const response = await fetch(fullUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                return await response.json();
+            } catch (err) {
+                console.log(`Proxy ${proxyIndex} failed:`, err.message);
+                return fetchWithProxy(url, proxyIndex + 1);
+            }
+        }
+        
         async function loadData() {
             const btn = document.getElementById('refreshBtn');
             btn.disabled = true;
@@ -135,13 +168,18 @@
             document.getElementById('error').style.display = 'none';
             
             try {
-                // Используем JSONP через script tag (обходит CORS)
-                const tickers = await jsonpFetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
-                const funding = await jsonpFetch('https://fapi.binance.com/fapi/v1/premiumIndex');
+                document.getElementById('table').innerHTML = '<div class="loading">Загрузка данных...</div>';
                 
-                if (!tickers || !funding) throw new Error('Нет данных от API');
+                const [tickers, funding] = await Promise.all([
+                    fetchWithProxy('https://fapi.binance.com/fapi/v1/ticker/24hr'),
+                    fetchWithProxy('https://fapi.binance.com/fapi/v1/premiumIndex')
+                ]);
                 
-                // Создаем map funding rate
+                if (!Array.isArray(tickers) || !Array.isArray(funding)) {
+                    throw new Error('Неверный формат данных');
+                }
+                
+                // Map funding
                 const fundingMap = {};
                 funding.forEach(f => {
                     if (f.symbol && f.lastFundingRate) {
@@ -149,32 +187,30 @@
                     }
                 });
                 
-                // Обрабатываем данные
+                // Process data
                 let data = tickers
                     .filter(t => t.symbol && t.symbol.endsWith('USDT'))
                     .map(t => {
                         const volume = parseFloat(t.quoteVolume) || 0;
                         const change = parseFloat(t.priceChangePercent) || 0;
-                        const fundingRate = fundingMap[t.symbol] || 0;
-                        
                         return {
                             symbol: t.symbol,
                             price: parseFloat(t.lastPrice),
                             change: change,
                             volume: volume,
-                            funding: fundingRate,
+                            funding: fundingMap[t.symbol] || 0,
                             impulse: Math.abs(change) * (volume / 1000000)
                         };
                     });
                 
-                // Фильтр
+                // Filter
                 const minVol = parseFloat(document.getElementById('minVolume').value) || 0;
                 data = data.filter(d => d.volume >= minVol);
                 
-                // Сортировка
+                // Sort
                 data.sort((a, b) => b.impulse - a.impulse);
                 
-                // Статистика
+                // Stats
                 const avgFunding = data.length > 0 ? data.reduce((sum, d) => sum + d.funding, 0) / data.length : 0;
                 const maxVolume = data.length > 0 ? Math.max(...data.map(d => d.volume)) : 0;
                 
@@ -197,18 +233,11 @@
                     </div>
                 `;
                 
-                // Таблица
-                const html = `
+                // Table
+                document.getElementById('table').innerHTML = `
                     <table>
                         <thead>
-                            <tr>
-                                <th>Пара</th>
-                                <th>Цена</th>
-                                <th>24ч</th>
-                                <th>Объем</th>
-                                <th>Funding</th>
-                                <th>Импульс</th>
-                            </tr>
+                            <tr><th>Пара</th><th>Цена</th><th>24ч</th><th>Объем</th><th>Funding</th><th>Импульс</th></tr>
                         </thead>
                         <tbody>
                             ${data.slice(0, 100).map(d => `
@@ -225,62 +254,19 @@
                     </table>
                 `;
                 
-                document.getElementById('table').innerHTML = html;
                 document.getElementById('lastUpdate').textContent = 
                     `Обновлено: ${new Date().toLocaleTimeString()}`;
                 
             } catch (err) {
                 document.getElementById('error').textContent = 'Ошибка: ' + err.message;
                 document.getElementById('error').style.display = 'block';
-                console.error(err);
+                document.getElementById('table').innerHTML = '';
             } finally {
                 btn.disabled = false;
                 btn.textContent = '🔄 Обновить';
             }
         }
         
-        // JSONP fetch - обходит CORS через script tag
-        function jsonpFetch(url) {
-            return new Promise((resolve, reject) => {
-                // Добавляем callback параметр для JSONP
-                const callback = 'jsonp_' + Date.now();
-                const script = document.createElement('script');
-                
-                // Для Binance API - пробуем без CORS
-                const targetUrl = url + (url.includes('?') ? '&' : '?') + 'callback=' + callback;
-                
-                window[callback] = (data) => {
-                    resolve(data);
-                    delete window[callback];
-                    script.remove();
-                };
-                
-                script.src = targetUrl;
-                script.onerror = () => {
-                    delete window[callback];
-                    script.remove();
-                    // Fallback - пробуем прямой fetch
-                    fetch(url)
-                        .then(r => r.json())
-                        .then(resolve)
-                        .catch(reject);
-                };
-                
-                document.head.appendChild(script);
-                
-                // Timeout
-                setTimeout(() => {
-                    if (window[callback]) {
-                        window[callback] = () => {};
-                        delete window[callback];
-                        script.remove();
-                        reject(new Error('Timeout'));
-                    }
-                }, 10000);
-            });
-        }
-        
-        // Первая загрузка
         loadData();
     </script>
 </body>
