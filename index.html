@@ -90,19 +90,12 @@
             font-weight: 600;
             font-size: 13px;
             text-transform: uppercase;
-            cursor: pointer;
-            user-select: none;
         }
-        th:hover { color: #667eea; }
         tr:hover { background: #1a2f5c; }
         .symbol { font-weight: 600; color: #667eea; }
         .positive { color: #00d084; }
         .negative { color: #ff5252; }
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #8892b0;
-        }
+        .loading { text-align: center; padding: 40px; color: #8892b0; }
         .error {
             background: #ff525220;
             border: 1px solid #ff5252;
@@ -111,11 +104,7 @@
             border-radius: 8px;
             margin-bottom: 20px;
         }
-        .last-update {
-            color: #8892b0;
-            font-size: 13px;
-            margin-top: 20px;
-        }
+        .last-update { color: #8892b0; font-size: 13px; margin-top: 20px; }
     </style>
 </head>
 <body>
@@ -131,11 +120,6 @@
                 <label>Мин. объем ($):</label>
                 <input type="number" id="minVolume" value="20000000" step="5000000">
             </div>
-            <div class="filter-group">
-                <label>
-                    <input type="checkbox" id="autoRefresh"> Авто-обновление (60с)
-                </label>
-            </div>
         </div>
         
         <div class="stats" id="stats"></div>
@@ -144,8 +128,6 @@
     </div>
 
     <script>
-        let autoRefreshInterval;
-        
         async function loadData() {
             const btn = document.getElementById('refreshBtn');
             btn.disabled = true;
@@ -153,40 +135,19 @@
             document.getElementById('error').style.display = 'none';
             
             try {
-                const proxy = 'https://api.allorigins.win/raw?url=';
-                const baseUrl = 'https://fapi.binance.com/fapi/v1';
+                // Используем JSONP через script tag (обходит CORS)
+                const tickers = await jsonpFetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
+                const funding = await jsonpFetch('https://fapi.binance.com/fapi/v1/premiumIndex');
                 
-                const [tickersRes, fundingRes] = await Promise.all([
-                    fetch(proxy + encodeURIComponent(baseUrl + '/ticker/24hr')),
-                    fetch(proxy + encodeURIComponent(baseUrl + '/premiumIndex'))
-                ]);
-                
-                if (!tickersRes.ok || !fundingRes.ok) throw new Error('Ошибка загрузки данных');
-                
-                const tickers = await tickersRes.json();
-                let funding = await fundingRes.json();
-                
-                // Проверяем формат данных
-                if (!Array.isArray(funding)) {
-                    // Если funding - объект с result.list
-                    if (funding.result && Array.isArray(funding.result.list)) {
-                        funding = funding.result.list;
-                    } else if (funding.data && Array.isArray(funding.data)) {
-                        funding = funding.data;
-                    } else {
-                        throw new Error('Неверный формат данных funding');
-                    }
-                }
+                if (!tickers || !funding) throw new Error('Нет данных от API');
                 
                 // Создаем map funding rate
                 const fundingMap = {};
-                if (Array.isArray(funding)) {
-                    funding.forEach(f => {
-                        if (f.symbol && f.lastFundingRate) {
-                            fundingMap[f.symbol] = parseFloat(f.lastFundingRate) * 100;
-                        }
-                    });
-                }
+                funding.forEach(f => {
+                    if (f.symbol && f.lastFundingRate) {
+                        fundingMap[f.symbol] = parseFloat(f.lastFundingRate) * 100;
+                    }
+                });
                 
                 // Обрабатываем данные
                 let data = tickers
@@ -241,12 +202,12 @@
                     <table>
                         <thead>
                             <tr>
-                                <th onclick="sortTable('symbol')">Пара ↕</th>
-                                <th onclick="sortTable('price')">Цена ↕</th>
-                                <th onclick="sortTable('change')">24ч ↕</th>
-                                <th onclick="sortTable('volume')">Объем ↕</th>
-                                <th onclick="sortTable('funding')">Funding ↕</th>
-                                <th onclick="sortTable('impulse')">Импульс ↕</th>
+                                <th>Пара</th>
+                                <th>Цена</th>
+                                <th>24ч</th>
+                                <th>Объем</th>
+                                <th>Funding</th>
+                                <th>Импульс</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -278,18 +239,46 @@
             }
         }
         
-        function sortTable(field) {
-            loadData();
+        // JSONP fetch - обходит CORS через script tag
+        function jsonpFetch(url) {
+            return new Promise((resolve, reject) => {
+                // Добавляем callback параметр для JSONP
+                const callback = 'jsonp_' + Date.now();
+                const script = document.createElement('script');
+                
+                // Для Binance API - пробуем без CORS
+                const targetUrl = url + (url.includes('?') ? '&' : '?') + 'callback=' + callback;
+                
+                window[callback] = (data) => {
+                    resolve(data);
+                    delete window[callback];
+                    script.remove();
+                };
+                
+                script.src = targetUrl;
+                script.onerror = () => {
+                    delete window[callback];
+                    script.remove();
+                    // Fallback - пробуем прямой fetch
+                    fetch(url)
+                        .then(r => r.json())
+                        .then(resolve)
+                        .catch(reject);
+                };
+                
+                document.head.appendChild(script);
+                
+                // Timeout
+                setTimeout(() => {
+                    if (window[callback]) {
+                        window[callback] = () => {};
+                        delete window[callback];
+                        script.remove();
+                        reject(new Error('Timeout'));
+                    }
+                }, 10000);
+            });
         }
-        
-        // Авто-обновление
-        document.getElementById('autoRefresh').addEventListener('change', function() {
-            if (this.checked) {
-                autoRefreshInterval = setInterval(loadData, 60000);
-            } else {
-                clearInterval(autoRefreshInterval);
-            }
-        });
         
         // Первая загрузка
         loadData();
