@@ -1,63 +1,37 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Futures Screener</title>
+    <title>Crypto Screener</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0a0e27;
-            color: #fff;
-        }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        h1 { 
-            font-size: 32px; 
-            margin-bottom: 10px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .subtitle { color: #8892b0; margin-bottom: 20px; }
+        body { margin: 0; background: #131722; }
+        .container { height: 100vh; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🚀 Crypto Futures Screener</h1>
-        <p class="subtitle">Binance Perpetual Futures</p>
-        
-        <!-- TradingView Crypto Screener Widget -->
-        <div class="tradingview-widget-container">
-            <div class="tradingview-widget-container__widget"></div>
+        <!-- TradingView Widget BEGIN -->
+        <div class="tradingview-widget-container" style="height:100%;width:100%">
+            <div class="tradingview-widget-container__widget" style="height:calc(100% - 32px);width:100%"></div>
             <script type="text/javascript" src="https://s3.tradingview.com/external-screener-api.js"></script>
             <script type="text/javascript">
             (function() {
-                const widget = new TradingView.widget({
+                new TradingView.widget({
                     "autosize": true,
                     "width": "100%",
-                    "height": 800,
+                    "height": "100%",
                     "defaultColumn": "overview",
                     "defaultScreen": "general",
                     "market": "crypto",
                     "showToolbar": true,
                     "colorTheme": "dark",
                     "locale": "ru",
-                    "enableExport": true,
-                    "saveImage": true,
                     "container_id": "tradingview_screener_widget"
                 });
             })();
             </script>
         </div>
+        <!-- TradingView Widget END -->
     </div>
-    
-    <script>
-        // Адаптивная высота
-        window.addEventListener('resize', function() {
-            const container = document.querySelector('.tradingview-widget-container');
-            container.style.height = (window.innerHeight - 150) + 'px';
-        });
-    </script>
 </body>
 </html>
